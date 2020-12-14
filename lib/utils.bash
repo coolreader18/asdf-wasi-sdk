@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-# TODO: Ensure this is the correct GitHub homepage where releases can be downloaded for wasi-sdk.
 GH_REPO="https://github.com/WebAssembly/wasi-sdk"
 
 fail() {
@@ -12,35 +11,38 @@ fail() {
 
 curl_opts=(-fsSL)
 
-# NOTE: You might want to remove this if wasi-sdk is not hosted on GitHub releases.
 if [ -n "${GITHUB_API_TOKEN:-}" ]; then
   curl_opts=("${curl_opts[@]}" -H "Authorization: token $GITHUB_API_TOKEN")
 fi
 
 sort_versions() {
-  sed 'h; s/[+-]/./g; s/.p\([[:digit:]]\)/.z\1/; s/$/.z/; G; s/\n/ /' |
-    LC_ALL=C sort -t. -k 1,1 -k 2,2n -k 3,3n -k 4,4n -k 5,5n | awk '{print $2}'
+  # TODO: portable sort -V
+  LC_ALL=C sort -V
 }
 
 list_github_tags() {
   git ls-remote --tags --refs "$GH_REPO" |
     grep -o 'refs/tags/.*' | cut -d/ -f3- |
-    sed 's/^v//' # NOTE: You might want to adapt this sed to remove non-version strings from tags
+    sed 's/^wasi-sdk-//'
 }
 
 list_all_versions() {
-  # TODO: Adapt this. By default we simply list the tag names from GitHub releases.
-  # Change this function if wasi-sdk has other means of determining installable versions.
   list_github_tags
 }
 
 download_release() {
-  local version filename url
+  local version filename url os
   version="$1"
   filename="$2"
 
-  # TODO: Adapt the release URL convention for wasi-sdk
-  url="$GH_REPO/archive/v${version}.tar.gz"
+  case "$OSTYPE" in
+    linux*) os=linux ;;
+    darwin*) os=macos ;;
+    msys*) os=mingw ;;
+    *) fail "no prebuilt package for os" ;;
+  esac
+
+  url="$GH_REPO/releases/download/wasi-sdk-${version}/wasi-sdk-${version}.0-$os.tar.gz"
 
   echo "* Downloading wasi-sdk release $version..."
   curl "${curl_opts[@]}" -o "$filename" -C - "$url" || fail "Could not download $url"
@@ -55,18 +57,21 @@ install_version() {
     fail "asdf-wasi-sdk supports release installs only"
   fi
 
-  # TODO: Adapt this to proper extension and adapt extracting strategy.
   local release_file="$install_path/wasi-sdk-$version.tar.gz"
   (
     mkdir -p "$install_path"
+    mkdir -p "$install_path/bin"
+    mkdir -p "$install_path/wasi-sdk"
+
     download_release "$version" "$release_file"
-    tar -xzf "$release_file" -C "$install_path" --strip-components=1 || fail "Could not extract $release_file"
+    tar -xzf "$release_file" -C "$install_path/wasi-sdk" --strip-components=1 || fail "Could not extract $release_file"
     rm "$release_file"
 
-    # TODO: Asert wasi-sdk executable exists.
-    local tool_cmd
-    tool_cmd="$(echo "wasicc --version" | cut -d' ' -f2-)"
-    test -x "$install_path/bin/$tool_cmd" || fail "Expected $install_path/bin/$tool_cmd to be executable."
+    install "$(dirname "$0")/../wasi-helper.sh" "$install_path/asdf-wasi-helper.sh"
+
+    for bin in wasicc wasiclang wasic++ wasiclang++ wasild wasinm wasiar wasillvm-ar wasiranlib; do
+      ln -s ../asdf-wasi-helper.sh "$install_path/bin/$bin"
+    done
 
     echo "wasi-sdk $version installation was successful!"
   ) || (
