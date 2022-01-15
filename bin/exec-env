@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+# WASI_SDK_PATH
+if [ -n "$ASDF_INSTALL_PATH" ]; then
+  if [ -z "$WASI_SDK_PATH" ]; then
+    export WASI_SDK_PATH="${ASDF_INSTALL_PATH}/wasi-sdk"
+  fi
+fi
